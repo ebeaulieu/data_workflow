@@ -1,0 +1,117 @@
+---
+title: "Préparation de données désordonnées"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+## Importation et structure
+```{r}
+
+# library(rstudioapi)
+
+# current_path <- getActiveDocumentContext()$path 
+# setwd(dirname(current_path ))
+
+setwd("C:/Users/Eric/Documents/Symposium/2019/R/")
+
+raw <- read.csv("weather.csv", col.names=c("site_id", "year", "month", "element", paste("d", 1:31, sep = "")), header = FALSE)
+
+library(knitr)
+library(dplyr)
+# subset(raw, select=c("year","month","element",paste("d", 1:10, sep = "")))
+# kable(subset(raw, select=c("year","month","element",paste("d", 1:10, sep = ""))))
+# kable(raw)
+
+library(tidyr)
+library(stringr)
+library(dplyr)
+
+clean1 <- raw %>% gather(day, value, d1:d31, na.rm = TRUE)
+clean1$day <- as.integer(str_replace(clean1$day, "d", ""))
+clean1$date <- as.Date(ISOdate(clean1$year, clean1$month, clean1$day))
+clean1 <- clean1[c("site_id", "date", "element", "value")]
+clean1 <- arrange(clean1, date, element)
+clean2 <- spread(clean1, element, value)
+
+outclean <- cbind(id = as.integer(rownames(clean2)), clean2)
+
+write.csv(outclean, "weatherclean.csv", row.names = FALSE)
+
+# Changer les permissions du fichier csv pour son importation avec pgadmin
+system("icacls sites.csv /grant Everyone:(r)")
+
+```
+
+##Avant-après du nettoyage
+
+```{r echo=FALSE}
+print("Données brutes désordonnées")
+head(subset(raw, select=c("year","month","element",paste("d", 1:10, sep = ""))))
+print("Premier passage de nettoyage")
+head(clean1)
+#print("...")
+#tail(clean1)
+print("Deuxième passage de nettoyage")
+head(clean2)
+```
+
+```{r}
+
+#library(rstudioapi)
+library(DBI)
+library(RPostgreSQL)
+
+# loads the PostgreSQL driver
+drv <- dbDriver("PostgreSQL")
+
+con <- dbConnect(drv, dbname = "postgres",
+  host = "localhost", port = 5432,
+# user = rstudioapi::askForPassword("Database user"), 
+  user = "postgres", 
+# password = rstudioapi::askForPassword("Database password"))
+  password = "postgres")
+
+
+```
+
+```{sql, connection=con}
+select site_id, longitude, latitude, site_name from sites where site_id = 'MX17004'
+```
+
+```{r echo = FALSE, eval = FALSE}
+dbDisconnect(con)
+```
+
+## Exploration
+```{r}
+attach(clean2)
+
+par(mfrow=c(1,2))
+hist(tmin)
+hist(tmax)
+
+par(mfrow=c(1,2))
+boxplot(tmin, main = "Boxplot of tmin")
+boxplot(tmax, main = "Boxplot of tmax")
+
+library(ggplot2)
+
+ggplot(clean2) + geom_ribbon(aes(x = date, ymax = tmax, ymin = tmin), alpha = 0.6, fill = "darkblue")
+
+detach(clean2)
+```
+
+##Version Control
+
+Mise en place : 
+
+git config --global user.name ebeaulieu
+git config --global user.email e_beaulieu@hotmail.com
+
+R Studio Menu Global Options...
+
+Restart RStudio
+Onglet Git/SVN : 
+Git executable : C:/Program Files/Git/bin/git.exe
