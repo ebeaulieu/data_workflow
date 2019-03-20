@@ -1,22 +1,27 @@
 ---
 title: "Préparation de données désordonnées"
 output:
-  html_document: default
+  html_document:
+    df_print: paged
   pdf_document: default
 ---
 
+rm(list=ls())
+
+# Structuration (tidyr)
 
 ## Importation et structure
-```{r}
+```{r message = FALSE}
 
 # library(rstudioapi)
 
 # current_path <- getActiveDocumentContext()$path 
 # setwd(dirname(current_path ))
 
-setwd("C:/Users/Eric/Documents/Symposium/2019/R/")
+# setwd("C:/Users/Eric/Documents/Symposium/2019/data_workflow/")
 
-raw <- read.csv("weather.csv", col.names=c("site_id", "year", "month", "element", paste("d", 1:31, sep = "")), header = FALSE)
+raw <- read.csv("data/weather.csv", col.names=c("site_id", "year", "month", "element", 
+                                           paste("d", 1:31, sep = "")), header = FALSE)
 
 library(knitr)
 library(dplyr)
@@ -37,31 +42,39 @@ clean2 <- spread(clean1, element, value)
 
 outclean <- cbind(id = as.integer(rownames(clean2)), clean2)
 
-write.csv(outclean, "weatherclean.csv", row.names = FALSE)
+write.csv(outclean, "data/weatherclean.csv", row.names = FALSE)
 
 # Changer les permissions du fichier csv pour son importation avec pgadmin
 system("icacls sites.csv /grant Everyone:(r)")
 
 ```
 
-##Avant-après du nettoyage
+\newpage
+
+## Avant-après de la structuration
 
 ```{r echo=FALSE}
 print("Données brutes désordonnées")
 head(subset(raw, select=c("year","month","element",paste("d", 1:10, sep = ""))))
-print("Premier passage de nettoyage")
+cat("\nPremier passage de structuration")
 head(clean1)
 #print("...")
 #tail(clean1)
-print("Deuxième passage de nettoyage")
+cat("\nDeuxième passage de structuration")
 head(clean2)
 ```
 
+\newpage
+
+# Intégration (PostgreSQL)
+
+## Connexion à une base de données
 ```{r}
 
 #library(rstudioapi)
 library(DBI)
 library(RPostgreSQL)
+library(getPass)
 
 # loads the PostgreSQL driver
 drv <- dbDriver("PostgreSQL")
@@ -72,21 +85,55 @@ con <- dbConnect(drv, dbname = "postgres",
   user = "postgres", 
 # password = rstudioapi::askForPassword("Database password"))
   password = "postgres")
+# password = getPass())
 
 
 ```
+
+## Création d'une table et insertion de données avec SQL
 
 ```{sql, connection=con}
-select site_id, longitude, latitude, site_name from sites where site_id = 'MX17004'
+
+DROP TABLE sites;
+
+CREATE TABLE sites
+(
+  id integer NOT NULL, 
+  site_id character varying(50) NOT NULL,
+  longitude real,
+  latitude real,
+  geom geometry,
+  site_name character varying(255),
+  CONSTRAINT sites_pkey PRIMARY KEY (id)
+);
+
+COPY sites(ID,site_id,longitude,latitude,site_name) 
+FROM 'C:/Users/Eric/Documents/Symposium/2019/data_workflow/data/sites.csv' DELIMITER ',' CSV HEADER;
+
+UPDATE sites SET geom = ST_MakePoint(longitude,latitude);
+
 ```
+
+## Exécuter une requête SQL
+
+```{sql, connection=con}
+select id, site_id, longitude, latitude, site_name from sites where site_id = 'MX17004';
+
+
+```
+
+\newpage
+
+# Analyse des données 
 
 ```{r echo = FALSE, eval = FALSE}
 dbDisconnect(con)
 ```
 
-## Exploration
-```{r}
+## Exploration des données
+```{r echo=FALSE}
 attach(clean2)
+
 
 par(mfrow=c(1,2))
 hist(tmin)
@@ -95,7 +142,9 @@ hist(tmax)
 par(mfrow=c(1,2))
 boxplot(tmin, main = "Boxplot of tmin")
 boxplot(tmax, main = "Boxplot of tmax")
+```
 
+```{r echo=FALSE}
 library(ggplot2)
 
 ggplot(clean2) + geom_ribbon(aes(x = date, ymax = tmax, ymin = tmin), alpha = 0.6, fill = "darkblue")
@@ -103,15 +152,15 @@ ggplot(clean2) + geom_ribbon(aes(x = date, ymax = tmax, ymin = tmin), alpha = 0.
 detach(clean2)
 ```
 
-##Version Control
+## Gestion de versions
 
-Mise en place : 
+Mise en place :  
 
-git config --global user.name ebeaulieu
-git config --global user.email e_beaulieu@hotmail.com
+git config --global user.name ebeaulieu  
+git config --global user.email e_beaulieu@hotmail.com  
 
-R Studio Menu Global Options...
+R Studio Menu Global Options...  
 
-Restart RStudio
-Onglet Git/SVN : 
-Git executable : C:/Program Files/Git/bin/git.exe
+Restart RStudio  
+Onglet Git/SVN :  
+Git executable : C:/Program Files/Git/bin/git.exe  
